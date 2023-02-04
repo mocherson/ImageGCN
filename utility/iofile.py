@@ -26,7 +26,7 @@ def load_obj(name ):
 class ChestXray_Dataset(Dataset):
     """ChestXray dataset."""
     
-    def __init__(self, path='/home/hddraid/shared_data/chest_xray8/', mode='RGB', adjgroup=True, neib_samp='relation', \
+    def __init__(self, path='/share/fsmresfiles/ChestXRay/', mode='RGB', adjgroup=True, neib_samp='relation', \
                  relations= ['pid', 'age', 'gender', 'view'], k = 16, graph_nodes='current',  transform=None):
         """
         Args:
@@ -89,7 +89,7 @@ class ChestXray_Dataset(Dataset):
                          for r, grp in self.tr_grp.items()], Counter())
                 sample['weight'] = w           
 
-        if self.transform:
+        if self.transform is not None:
             sample['image'] = self.transform(sample['image'])
 
         return sample
@@ -227,9 +227,230 @@ class Bbox_set(Dataset):
 
         return sample        
             
+
+class Chexpert_Dataset(Dataset):
+    """Chexpert dataset."""
+    
+    def __init__(self, path='/share/fsmresfiles/CheXpert-v1.0-small/', mode='RGB', adjgroup=True, neib_samp='relation', \
+                 relations= ['pid', 'age', 'gender', 'view'], k = 16, graph_nodes='current',  transform=None):
+        self.path=path
+        csv_labelfile=join(path, 'train_val.csv')
+        self.all_label_df = pd.read_csv(csv_labelfile)
+        self.all_label_df.fillna(0,inplace=True)
+        self.label_df = self.all_label_df
+        self.mode = mode
+        self.adjgroup = adjgroup
+        self.neib_samp = neib_samp
+        self.k=k
+        self.gnode = graph_nodes
+        self.transform = transform
+        self.relations = relations
+        self.all_grp = self.creat_adj(self.label_df ) 
+        self.grp = self.all_grp
+
+    def __len__(self):
+        return len(self.label_df)
+
+    def __getitem__(self, idx):
+        sample = self._getimage(idx)
+        if self.neib_samp == 'relation':
+            img = self.label_df.iloc[idx]
+            impt = self.impt_sample(img, k=1) 
+            sample['impt'] = impt
+        return sample
+    
+    def _getimage(self, idx, byindex=False, level=0):
+        img = self.all_label_df.loc[idx] if byindex else self.label_df.iloc[idx]
+        image = Image.open(join(self.path, img['Path']+'crop.jpg')).convert(self.mode)        
+        
+        labels= img[6:19].astype(float).values
+        sample = {'image': image, 'label': labels, 'pid':img['pid'],  'age':img['age'], 'gender':img['gender'], \
+                  'view':img['view'],  'name': img['Path'], 'index':img.name}
+        if level==0:
+            sample['dataset'] = self
+            if self.neib_samp in ('sampling', 'best'):
+                w = sum([(FlexCounter(grp[img[r]])/len(grp[img[r]]) if img[r] in  grp else FlexCounter())   \
+                         for r, grp in self.tr_grp.items()], Counter())
+                sample['weight'] = w           
+
+        if self.transform is not None:
+            sample['image'] = self.transform(sample['image'])
+
+        return sample
+    
+    def impt_sample(self, img, method='relation', k=1, base='train'):
+        """
+        sampling the important k samples for img.
+        method: "sample"--random choose by probability
+                "best"--choose the most important
+                "relation"--random choose k for each relation
+        base: choose the basic set, "train" or "all"
+        """
+        if base == "train":
+            grps = self.tr_grp
+        elif base == "all":
+            grps = self.all_grp 
             
+        if method=='relation':
+            impt_sample=[]
+            for r, grp in grps.items():
+                if img[r] in grp:
+                    neibs = grp[img[r]].drop(img.name, errors = 'ignore')
+                    if not neibs.empty:
+                        impt_sample += np.random.choice(neibs, k, replace=False).tolist()
+            return impt_sample    
+    
+        w = sum([FlexCounter(grp[img[r]])/len(grp[img[r]]) for r, grp in grps.items()], Counter())
+        w.pop(img.name, None)
+        if method == "sample":   
+            p = FlexCounter(w)/sum(w.values())
+            impt_sample = np.random.choice(list(p.keys()), k, replace=False, p=list(p.values()))
+        elif method == 'best':
+            impt_sample = nlargest(k, w, key = w.get) 
             
+        return impt_sample
+    
+    def creat_adj(self, label_df, adjgroup=True ):
+        if self.gnode=='current':
+            adj = {r:adj_from_series(label_df[r], groups= adjgroup) for r in self.relations}
+        else:
+            pass
+        return adj
             
+    def tr_val_te_split(self,  split='random', tr_pct=0.7 ):
+        n_all=len(self.all_label_df) 
+        np.random.seed(0)
+        if split=='specified':
+            perm = np.random.permutation(223414)
+            tr_df = self.all_label_df.iloc[perm[:int(223414*0.9)]]
+            val_df = self.all_label_df.iloc[perm[int(223414*0.9):]]
+            te_df = self.all_label_df.iloc[-234:]
+        elif split == 'random':
+            tr_df, val_df, te_df = np.split(self.all_label_df.sample(frac=1, random_state=0),[int(n_all*0.7), int(n_all*0.8),])
+            tr_df = tr_df.sample(n=int(n_all*tr_pct),random_state=0)
+        else:
+            raise Error('split %s is not defined'%(split))
+        
+        self.tr_grp = self.creat_adj(tr_df)
+        
+        tr_set, val_set, te_set = copy.copy(self), copy.copy(self), copy.copy(self)
+        tr_set.label_df, val_set.label_df, te_set.label_df  = tr_df, val_df, te_df
+
+        
+        return tr_set, val_set, te_set
+        
+
+
+class MimicCXR_Dataset(Dataset):
+    """MimicCXR dataset."""
+    
+    def __init__(self, path='/share/fsmresfiles/MIMIC_CXR/v1.0/MIMICCXR/', mode='RGB', adjgroup=True, neib_samp='relation', \
+                 relations= ['pid', 'view'], k = 16, graph_nodes='current',  transform=None):
+        self.path=path
+        csv_labelfile=join(path, 'train_val.csv')
+        # csv_bboxfile=join(path,'BBox_list_2017.csv')
+        self.all_label_df = pd.read_csv(csv_labelfile)
+        self.all_label_df.fillna(0,inplace=True)
+        self.label_df = self.all_label_df
+        self.mode = mode
+        self.adjgroup = adjgroup
+        self.neib_samp = neib_samp
+        self.k=k
+        self.gnode = graph_nodes
+
+        self.transform = transform
+        self.relations = relations
+        self.all_grp = self.creat_adj(self.label_df ) 
+        self.grp = self.all_grp
+
+    def __len__(self):
+        return len(self.label_df)
+
+    def __getitem__(self, idx):
+        sample = self._getimage(idx)
+        if self.neib_samp == 'relation':
+            img = self.label_df.iloc[idx]
+            impt = self.impt_sample(img, k=1) 
+            sample['impt'] = impt
+        return sample
+    
+    def _getimage(self, idx, byindex=False, level=0):
+        img = self.all_label_df.loc[idx] if byindex else self.label_df.iloc[idx]
+        image = Image.open(join(self.path, img['path']+'_crop.jpg')).convert(self.mode)        
+        
+        labels= img[3:16].astype(float).values
+        sample = {'image': image, 'label': labels, 'pid':img['pid'],  \
+                  'view':img['view'],  'name': img['path'], 'index':img.name}
+        if level==0:
+            sample['dataset'] = self
+            if self.neib_samp in ('sampling', 'best'):
+                w = sum([(FlexCounter(grp[img[r]])/len(grp[img[r]]) if img[r] in  grp else FlexCounter())   \
+                         for r, grp in self.tr_grp.items()], Counter())
+                sample['weight'] = w           
+
+        if self.transform is not None:
+            sample['image'] = self.transform(sample['image'])
+
+        return sample
+    
+    def impt_sample(self, img, method='relation', k=1, base='train'):
+        """
+        sampling the important k samples for img.
+        method: "sample"--random choose by probability
+                "best"--choose the most important
+                "relation"--random choose k for each relation
+        base: choose the basic set, "train" or "all"
+        """
+        if base == "train":
+            grps = self.tr_grp
+        elif base == "all":
+            grps = self.all_grp 
             
+        if method=='relation':
+            impt_sample=[]
+            for r, grp in grps.items():
+                if img[r]!='other' and img[r] in grp:
+                    neibs = grp[img[r]].drop(img.name, errors = 'ignore')
+                    if not neibs.empty:
+                        impt_sample += np.random.choice(neibs, k, replace=False).tolist()
+            return impt_sample    
+    
+        w = sum([FlexCounter(grp[img[r]])/len(grp[img[r]]) for r, grp in grps.items()], Counter())
+        w.pop(img.name, None)
+        if method == "sample":   
+            p = FlexCounter(w)/sum(w.values())
+            impt_sample = np.random.choice(list(p.keys()), k, replace=False, p=list(p.values()))
+        elif method == 'best':
+            impt_sample = nlargest(k, w, key = w.get) 
             
+        return impt_sample
+    
+    def creat_adj(self, label_df, adjgroup=True ):
+        if self.gnode=='current':
+            adj = {r:adj_from_series(label_df[r], groups= adjgroup) for r in self.relations}
+        else:
+            pass
+        return adj
             
+    def tr_val_te_split(self,  split='random', tr_pct=0.7 ):
+        n_all=len(self.all_label_df) 
+        np.random.seed(0)
+        if split=='specified':
+            perm = np.random.permutation(369188)
+            tr_df = self.all_label_df.iloc[perm[:int(369188*0.9)]]
+            val_df = self.all_label_df.iloc[perm[int(369188*0.9):]]
+            te_df = self.all_label_df.iloc[-2732:]
+        elif split == 'random':
+            tr_df, val_df, te_df = np.split(self.all_label_df.sample(frac=1, random_state=0),[int(n_all*0.7), int(n_all*0.8),])
+            tr_df = tr_df.sample(n=int(n_all*tr_pct),random_state=0)
+        else:
+            raise Error('split %s is not defined'%(split))
+        
+        self.tr_grp = self.creat_adj(tr_df)
+        
+        tr_set, val_set, te_set = copy.copy(self), copy.copy(self), copy.copy(self)
+        tr_set.label_df, val_set.label_df, te_set.label_df  = tr_df, val_df, te_df
+
+        
+        return tr_set, val_set, te_set
+        
