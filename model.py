@@ -37,9 +37,9 @@ class MRGCN(nn.Module):
             
         self.share_encoder= share_encoder
         if share_encoder == 'totally':
-            self.gcn =  ImageGraphConvolution(self.encoder, inchannel=inchannel) if enc else GraphConvolution(in_dim, out_dim)
+            self.gcn =  ImageGraphConvolution(self.encoder, out_dim=out_dim, inchannel=inchannel) if enc else GraphConvolution(in_dim, out_dim)
         elif share_encoder == 'not':    
-            self.gcn = nn.ModuleDict({str(i): ImageGraphConvolution(enc=copy.deepcopy(self.encoder), inchannel=inchannel)  \
+            self.gcn = nn.ModuleDict({str(i): ImageGraphConvolution(enc=copy.deepcopy(self.encoder), out_dim=out_dim, inchannel=inchannel)  \
                                       for i in relations+['self']}) if enc else  \
                                     nn.ModuleDict({str(i): GraphConvolution(in_dim, out_dim) for i in relations+['self']})
         elif share_encoder == 'partly':  
@@ -84,13 +84,14 @@ class ImageGCN(nn.Module):
         return fea
     
 class SingleLayerImageGCN(nn.Module):
-    def __init__(self, relations, encoder='singlealex', in_dim=1024,out_dim=14, inchannel=3, share_encoder=False):
+    def __init__(self, relations, encoder='singlealex', in_dim=1024,out_dim=14, inchannel=3, share_encoder='partly'):
         super(SingleLayerImageGCN, self).__init__()
+        self.out_dim = out_dim
         self.layer = MRGCN(relations, enc=encoder,in_dim=in_dim,out_dim=out_dim, inchannel=inchannel, share_encoder=share_encoder )        
     
     def forward(self, fea,  adj_mats, k ):
         fea2 = self.layer(fea, k, adj_mats)
-        fea2 = fea2.view(-1, 14)
+        fea2 = fea2.view(-1, self.out_dim)
 
         return fea2
     
@@ -100,11 +101,19 @@ class W_BCEWithLogitsLoss(nn.Module):
         self.reduction = reduction
         
     def forward(self, input, target):
-        p=int(target.sum().cpu().data.numpy())
         s=int(np.prod(target.size()))
         pos_weight = (target==0).sum()/ (target!=0).sum()
         return F.binary_cross_entropy_with_logits(input, target, reduction=self.reduction, pos_weight=pos_weight)
-      
+     
+class W_BCELossWithNA(nn.Module):
+    def __init__(self, reduction='mean'):
+        super(W_BCELossWithNA, self).__init__()
+        self.reduction = reduction
+        
+    def forward(self, input, target):       
+        pos_weight = (target==0).sum()/ (target==1).sum()
+        return F.binary_cross_entropy_with_logits(input[target!=-1], target[target!=-1], reduction=self.reduction, pos_weight=pos_weight)
+
 
 class MedGAE(nn.Module):
     def __init__(self, in_dim,  out_dims, edge_decoder, dropout=0.5):

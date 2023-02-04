@@ -93,13 +93,15 @@ if __name__=="__main__":
     bboxset = Bbox_set( transform=transform)
     bbox_loader = DataLoader(bboxset, batch_size=1, shuffle=False, pin_memory=True, num_workers=0)
     
-    model_name = '/home/hddraid/Mao/ImageGCN/models/best_singlealex_relation_RGB_tr0.7_norm.pth.tar'
+    model_name = '/home/hddraid/Mao/ImageGCN/models/all/checkpoint_singlevgg16bn_relation_RGB_tr0.7_partly_wd0.01_bestroc.pth.tar'
     relations = ['pid', 'age', 'gender', 'view']
-    model = SingleLayerImageGCN(relations, encoder='singlealex', inchannel=3, share_encoder='partly')    
+    # relations = []
+    model = SingleLayerImageGCN(relations, encoder='singlevgg16bn', inchannel=3, share_encoder='partly')    
     checkpoint = torch.load(model_name)    
     model.load_state_dict(checkpoint['state_dict'])
     model.eval()    
     encoder = model.layer.encoder
+    # fo APS
     # weight = model.layer.gcn.classifier.weight.data.numpy()
     # bias = model.layer.gcn.classifier.bias.data.numpy()
     
@@ -158,8 +160,8 @@ if __name__=="__main__":
             
             cv2.rectangle(heatmap, tuple(b[:2]), tuple(b[:2]+b[2:4]), (255,0,0), 1)
             draw.rectangle(( tuple(b[:2]), tuple(b[:2]+b[2:4])), outline=(0,0,255))
-            cv2.imwrite('/home/hddraid/Mao/ImageGCN/heatmaps/'+'label'+str(label)+'_'+name, heatmap)
-            image.save('/home/hddraid/Mao/ImageGCN/bbox/'+'label'+str(label)+'_'+name)
+            cv2.imwrite('/home/hddraid/Mao/ImageGCN/vgg16bn_pps/heatmaps/'+'label'+str(label)+'_'+name, heatmap)
+            image.save('/home/hddraid/Mao/ImageGCN/vgg16bn_pps/bbox/'+'label'+str(label)+'_'+name)
 
 
     classes = {'Atelectasis':0, 'Cardiomegaly':1, 'Effusion':2, 'Infiltrate':3, \
@@ -180,9 +182,9 @@ if __name__=="__main__":
         res_iou.append( bbox.groupby('Finding Label')['iou_match'+str(thr),'iou_fp'+str(thr)].mean())
         res_iobb.append( bbox.groupby('Finding Label')['iobb_match'+str(thr),'iobb_fp'+str(thr)].mean())
         
-    pd.concat(res_iou, axis=1).to_csv('/home/hddraid/Mao/ImageGCN/bbox_res/res_iou.csv')
-    pd.concat(res_iobb, axis=1).to_csv('/home/hddraid/Mao/ImageGCN/bbox_res/res_iobb.csv')
-    bbox.to_csv('/home/hddraid/Mao/ImageGCN/bbox_res/bbox_detect.csv')
+    pd.concat(res_iou, axis=1).to_csv('/home/hddraid/Mao/ImageGCN/vgg16bn_pps/bbox_res/res_iou.csv')
+    pd.concat(res_iobb, axis=1).to_csv('/home/hddraid/Mao/ImageGCN/vgg16bn_pps/bbox_res/res_iobb.csv')
+    bbox.to_csv('/home/hddraid/Mao/ImageGCN/vgg16bn_pps/bbox_res/bbox_detect.csv')
 
 
     

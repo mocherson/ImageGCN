@@ -14,7 +14,7 @@ from sklearn.metrics import roc_auc_score
 
 parser = argparse.ArgumentParser(description='GCN for chestXray')
 parser.add_argument('--batch-size', type=int, default=16, metavar='N', help='input batch size for training (default: 16)')
-parser.add_argument('--path', default='/share/fsmresfiles/ChestXRay/', type=str, help='data path')
+parser.add_argument('--path', default='/share/fsmresfiles/CheXpert-v1.0-small/', type=str, help='data path')
 parser.add_argument('--epochs', type=int, default=10, metavar='N', help='number of epochs to train (default: 10)')
 parser.add_argument('--seed', type=int, default=1, metavar='N', help='random seed (default: 1)')
 parser.add_argument('--gpu', type=int, default=-1, metavar='N', help='the GPU number (default auto schedule)')
@@ -46,43 +46,20 @@ relations = ['pid', 'age', 'gender', 'view'] if args.relations=='all' else [] if
 
 transform = transforms.Compose([ transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225]) ])
 
-dataset = ChestXray_Dataset(path=args.path, mode=mode, neib_samp=neib, relations=relations, k=k, transform=transform)
+dataset = Chexpert_Dataset(path=args.path, mode=mode, neib_samp=neib, relations=relations, k=k, transform=transform)
 train_set, validation_set, test_set = dataset.tr_val_te_split(tr_pct=tr_pct)
-train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, collate_fn= mycollate, pin_memory=True, num_workers=16)
-validation_loader = DataLoader(validation_set, batch_size=batch_size, collate_fn= mycollate, shuffle=True, pin_memory=True, num_workers=16)
-test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=True, collate_fn= mycollate, pin_memory=True, num_workers=16)
+train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, collate_fn= mycollate, pin_memory=True, num_workers=1)
+validation_loader = DataLoader(validation_set, batch_size=batch_size, collate_fn= mycollate, shuffle=True, pin_memory=True, num_workers=1)
+test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=True, collate_fn= mycollate, pin_memory=True, num_workers=1)
 
-
-
-# if enc=='alex':
-#     encoder = MyAlexNet(14).features[:-2]
-#     hc = 256
-# elif enc=='res50':
-#     encoder = MyResNet50(14).features[:-2]
-#     hc = 2048
-# elif enc=='vgg16bn':
-#     encoder = MyVggNet16_bn(14).features[:-2]
-#     hc = 512
-# elif enc=='vgg16':
-#     encoder = MyVggNet16(14).features[:-2]
-#     hc = 512
-# elif enc=='dens161':
-#     encoder=MyDensNet161(14).features[:-2]
-#     hc = 2208
-# elif enc=='dens201':
-#     encoder=MyDensNet201(14).features[:-2]
-#     hc = 1920
-# elif enc=='dens121':
-#     encoder=MyDensNet121(14).features[:-2]
-#     hc = 1024
 
 if args.gpu>=0:
     torch.cuda.set_device(args.gpu)
 
-model = SingleLayerImageGCN(relations, encoder=enc, inchannel=inchannel, share_encoder=pps).cuda()
+model = SingleLayerImageGCN(relations, encoder=enc, out_dim=13, inchannel=inchannel, share_encoder=pps).cuda()
 # model =  nn.DataParallel(model)
 
-criterion = W_BCEWithLogitsLoss()
+criterion = W_BCELossWithNA()
 optimizer = optim.Adam(model.parameters(),  lr=1e-5, amsgrad =False, weight_decay=wd,)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=4)
 
@@ -91,9 +68,9 @@ def train(train_loader, validation_loader, test_loader,  model, criterion, optim
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
-    res=pd.DataFrame(columns=['epoch','iter','loss_tr','loss_val','avgroc_val','avgroc_test','Atelectasis', 'Cardiomegaly', 'Effusion', \
-                              'Infiltration', 'Mass', 'Nodule', 'Pneumonia', 'Pneumothorax', 'Consolidation', 'Edema', \
-                              'Emphysema', 'Fibrosis', 'Pleural_Thickening', 'Hernia'])
+    res=pd.DataFrame(columns=['epoch','iter','loss_tr','loss_val','avgroc_val','avgroc_test','Enlarged_Cardiomediastinum', 'Cardiomegaly', 'Lung_Opacity', \
+                              'Lung_Lesion', 'Edema', 'Consolidation', 'Pneumonia', 'Atelectasis', 'Pneumothorax', 'Pleural_Effusion', \
+                              'Pleural_Other', 'Fracture', 'Support_Devices'])
 
     # switch to train mode
     end = time.time()
@@ -135,27 +112,27 @@ def train(train_loader, validation_loader, test_loader,  model, criterion, optim
                 scheduler.step(avgroc_val)
                 
                 res.loc[len(res)]=[epoch, i, losses.avg,loss_val,avgroc_val,avgroc_test]+list(roc_test)
-                res.to_csv('./results/CXR14/%s/%s_%s_%s_tr%s_%s_wd%s.csv'%(args.relations, enc,neib, mode, tr_pct,pps,wd) )
+                res.to_csv('./results/Chexpert/%s/%s_%s_%s_tr%s_%s_wd%s.csv'%(args.relations, enc,neib, mode, tr_pct,pps,wd) )
                 
                 if loss_val<=res['loss_val'].min():
                     torch.save({'epoch':epoch, 'i':i, 'state_dict': model.state_dict(),'optimizer' : optimizer.state_dict()},
-                         './models/CXR14/%s/checkpoint_%s_%s_%s_tr%s_%s_wd%s_bestloss.pth.tar'  \
+                         './models/Chexpert/%s/checkpoint_%s_%s_%s_tr%s_%s_wd%s_bestloss.pth.tar'  \
                               %(args.relations, enc,neib,mode,tr_pct,pps,wd))
-                    save_obj(pred, './results/CXR14/%s/%s_%s_%s_tr%s_%s_wd%s_bestloss.pkl'  \
+                    save_obj(pred, './results/Chexpert/%s/%s_%s_%s_tr%s_%s_wd%s_bestloss.pkl'  \
                                        %(args.relations, enc,neib, mode,tr_pct,pps,wd))
                     
                 if avgroc_val>=res['avgroc_val'].max():
                     torch.save({'epoch':epoch, 'i':i, 'state_dict': model.state_dict(),'optimizer' : optimizer.state_dict()},
-                         './models/CXR14/%s/checkpoint_%s_%s_%s_tr%s_%s_wd%s_bestroc.pth.tar'  \
+                         './models/Chexpert/%s/checkpoint_%s_%s_%s_tr%s_%s_wd%s_bestroc.pth.tar'  \
                               %(args.relations, enc,neib,mode,tr_pct,pps,wd))
-                    save_obj(pred, './results/CXR14/%s/%s_%s_%s_tr%s_%s_wd%s_bestroc.pkl'  \
+                    save_obj(pred, './results/Chexpert/%s/%s_%s_%s_tr%s_%s_wd%s_bestroc.pkl'  \
                                        %(args.relations, enc,neib, mode,tr_pct,pps,wd))
                     
                 if avgroc_test>=res['avgroc_test'].max():
                     torch.save({'epoch':epoch, 'i':i, 'state_dict': model.state_dict(),'optimizer' : optimizer.state_dict()},
-                         './models/CXR14/%s/checkpoint_%s_%s_%s_tr%s_%s_wd%s_bestroc_te.pth.tar'  \
+                         './models/Chexpert/%s/checkpoint_%s_%s_%s_tr%s_%s_wd%s_bestroc_te.pth.tar'  \
                               %(args.relations, enc,neib,mode,tr_pct,pps,wd))
-                    save_obj(pred, './results/CXR14/%s/%s_%s_%s_tr%s_%s_wd%s_bestroc_te.pkl'  \
+                    save_obj(pred, './results/Chexpert/%s/%s_%s_%s_tr%s_%s_wd%s_bestroc_te.pkl'  \
                                        %(args.relations, enc,neib, mode,tr_pct,pps,wd))
                     
                 
@@ -196,26 +173,31 @@ def validate(val_loader, model, criterion):
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'.format(
                        i, len(val_loader), batch_time=batch_time, loss=losses))
-        outputs =  F.sigmoid(torch.cat(outputs)).cpu().numpy()
+        outputs =  torch.sigmoid(torch.cat(outputs)).cpu().numpy()
         labels = torch.cat(labels).cpu().numpy()
         idx = torch.cat(index).cpu().numpy()
-        
-    roc = roc_auc_score(labels, outputs, average=None)
+     
+    roc = np.zeros(labels.shape[1])
+    for i in  range(labels.shape[1]):   
+        lb = labels[:,i]
+        op = outputs[:,i]
+        roc[i] = roc_auc_score(lb[lb!=-1], op[lb!=-1])
     avgroc = roc.mean()
     print('validate roc',roc)
     print('validate average roc',avgroc)
             
     return losses.avg, avgroc, roc, (idx, labels, outputs)
 
+
 if use=='train':                
     res=train(train_loader, validation_loader, test_loader, model, criterion, optimizer, 1000)
-    res.to_csv('./results/CXR14/%s/%s_%s_%s_tr%s_%s_wd%s.csv'%(args.relations, enc,neib, mode, tr_pct,pps,wd))    
+    res.to_csv('./results/Chexpert/%s/%s_%s_%s_tr%s_%s_wd%s.csv'%(args.relations, enc,neib, mode, tr_pct,pps,wd))    
 elif use=='test':
-    cp = torch.load('./models/CXR14/%s/checkpoint_%s_%s_%s_tr%s_%s_wd%s_bestroc.pth.tar'  \
+    cp = torch.load('./models/Chexpert/%s/checkpoint_%s_%s_%s_tr%s_%s_wd%s_bestroc.pth.tar'  \
                               %(args.relations, enc,neib,mode,tr_pct,pps,wd))
     model.load_state_dict(cp['state_dict'])
     loss_test, avgroc_test, roc_test, pred = validate(test_loader, model, criterion)
-    save_obj(pred,  './results/CXR14/%s/pred_%s_%s.pkl'%(args.relations,enc,pps))
+    save_obj(pred,  './results/Chexpert/%s/pred_%s_%s.pkl'%(args.relations,enc,pps))
 
     
     

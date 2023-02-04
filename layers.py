@@ -43,10 +43,10 @@ class ImageGraphConvolution(nn.Module):
     GCN layer for image data
     """
 
-    def __init__(self, enc , inchannel=3):
+    def __init__(self, enc , out_dim=14, inchannel=3):
         super(ImageGraphConvolution, self).__init__()
         self.encoder = enc
-        self.classifier = nn.Linear(1024, 14)
+        self.classifier = nn.Linear(1024, out_dim)
 
     def forward(self, input, adj=1.0):
         x = self.encoder(input).squeeze()

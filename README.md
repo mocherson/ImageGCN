@@ -1,7 +1,7 @@
 # ImageGCN
 This repository is the official PyTorch implementation of the experiments in the following paper: 
 
-Mao, Chengsheng, Liang Yao, and Yuan Luo. "Imagegcn: Multi-relational image graph convolutional networks for disease identification with chest x-rays." arXiv preprint arXiv:1904.00325 (2019).
+Mao, Chengsheng, Liang Yao, and Yuan Luo. "Imagegcn: Multi-relational image graph convolutional networks for disease identification with chest x-rays." IEEE Transactions on Medical Imaging 41.8 (2022): 1990-2003.
 
 ## Test run
 
