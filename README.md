@@ -7,6 +7,6 @@ Mao, Chengsheng, Liang Yao, and Yuan Luo. "Imagegcn: Multi-relational image grap
 
 
 ```
-python run_sglayer.py --neibor relation -e res50  --gpu 0 --batch-size 16   --train-percent 0.7
+python run_sglayer.py --path <data path> --neibor relation -e res50  --gpu 0 --batch-size 16   --train-percent 0.7
 ```
 
